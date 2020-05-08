@@ -76,8 +76,6 @@ export class ServerRegistry {
   }
 }
 
-const SERVER_GRAPH_DATA_MAX_LENGTH = 72
-
 export class ServerRegistration {
   playerCount = 0
   isVisible = true
@@ -94,41 +92,38 @@ export class ServerRegistration {
     this._failedSequentialPings = 0
   }
 
-  addGraphPoints (points) {
+  addGraphPoints (points, timestampPoints) {
     // Test if the first point contains error.placeholder === true
     // This is sent by the backend when the server hasn't been pinged yet
     // These points will be disregarded to prevent the graph starting at 0 player count
     points = points.filter(point => !point.error || !point.error.placeholder)
 
-    // The backend should never return more data elements than the max
-    // but trim the data result regardless for safety and performance purposes
-    if (points.length > SERVER_GRAPH_DATA_MAX_LENGTH) {
-      points.slice(points.length - SERVER_GRAPH_DATA_MAX_LENGTH, points.length)
-    }
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i]
+      const timestamp = timestampPoints[i]
 
-    this._graphData = points.map(point => point.result ? [point.timestamp, point.result.players.online] : [point.timestamp, 0])
+      this._graphData.push([timestamp, point.result ? point.result.players.online : 0])
+    }
   }
 
   buildPlotInstance () {
     this._plotInstance = $.plot('#chart_' + this.serverId, [this._graphData], SERVER_GRAPH_OPTIONS)
   }
 
-  handlePing (payload, pushToGraph) {
+  handlePing (payload, timestamp) {
     if (payload.result) {
       this.playerCount = payload.result.players.online
 
-      if (pushToGraph) {
-        // Only update graph for successful pings
-        // This intentionally pauses the server graph when pings begin to fail
-        this._graphData.push([payload.timestamp, this.playerCount])
+      // Only update graph for successful pings
+      // This intentionally pauses the server graph when pings begin to fail
+      this._graphData.push([timestamp, this.playerCount])
 
-        // Trim graphData to within the max length by shifting out the leading elements
-        if (this._graphData.length > SERVER_GRAPH_DATA_MAX_LENGTH) {
-          this._graphData.shift()
-        }
-
-        this.redraw()
+      // Trim graphData to within the max length by shifting out the leading elements
+      if (this._graphData.length > this._app.publicConfig.serverGraphMaxLength) {
+        this._graphData.shift()
       }
+
+      this.redraw()
 
       // Reset failed ping counter to ensure the next connection error
       // doesn't instantly retrigger a layout change
@@ -170,10 +165,6 @@ export class ServerRegistration {
   }
 
   updateServerStatus (ping, isInitialUpdate, minecraftVersions) {
-    // Only pushToGraph when initialUpdate === false
-    // Otherwise the ping value is pushed into the graphData when already present
-    this.handlePing(ping, !isInitialUpdate)
-
     if (ping.versions) {
       const versionsElement = document.getElementById('version_' + this.serverId)
 
@@ -231,8 +222,6 @@ export class ServerRegistration {
   }
 
   initServerStatus (latestPing) {
-    const peakHourDuration = Math.floor(this._app.publicConfig.graphDuration / (60 * 60 * 1000)) + 'h Peak: '
-
     const serverElement = document.createElement('div')
 
     serverElement.id = 'container_' + this.serverId
@@ -244,7 +233,7 @@ export class ServerRegistration {
         '<h3 class="server-name"><span class="' + this._app.favoritesManager.getIconClass(this.isFavorite) + '" id="favorite-toggle_' + this.serverId + '"></span> ' + this.data.name + '</h3>' +
         '<span class="server-error" id="error_' + this.serverId + '"></span>' +
         '<span class="server-label" id="player-count_' + this.serverId + '">Players: <span class="server-value" id="player-count-value_' + this.serverId + '"></span></span>' +
-        '<span class="server-label" id="peak_' + this.serverId + '">' + peakHourDuration + '<span class="server-value" id="peak-value_' + this.serverId + '">-</span></span>' +
+        '<span class="server-label" id="peak_' + this.serverId + '">' + this._app.publicConfig.graphDurationLabel + ' Peak: <span class="server-value" id="peak-value_' + this.serverId + '">-</span></span>' +
         '<span class="server-label" id="record_' + this.serverId + '">Record: <span class="server-value" id="record-value_' + this.serverId + '">-</span></span>' +
         '<span class="server-label" id="version_' + this.serverId + '"></span>' +
       '</div>' +
